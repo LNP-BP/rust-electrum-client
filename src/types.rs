@@ -2,7 +2,11 @@
 //!
 //! This module contains definitions of all the complex data structures that are returned by calls
 
+use std::convert::TryFrom;
+use std::ops::Deref;
+
 use bitcoin::blockdata::block;
+use bitcoin::consensus::encode::deserialize;
 use bitcoin::hashes::hex::FromHex;
 use bitcoin::hashes::{sha256, Hash};
 use bitcoin::{Script, Txid};
@@ -23,6 +27,8 @@ pub enum Param {
     String(String),
     /// Boolean parameter
     Bool(bool),
+    /// Bytes array parameter
+    Bytes(Vec<u8>),
 }
 
 #[derive(Serialize, Clone)]
@@ -40,7 +46,7 @@ pub struct Request<'a> {
 
 impl<'a> Request<'a> {
     /// Creates a new request with a default id
-    pub fn new(method: &'a str, params: Vec<Param>) -> Self {
+    fn new(method: &'a str, params: Vec<Param>) -> Self {
         Self {
             id: 0,
             jsonrpc: JSONRPC_2_0,
@@ -58,12 +64,31 @@ impl<'a> Request<'a> {
     }
 }
 
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+pub struct Hex32Bytes(#[serde(deserialize_with = "from_hex")] [u8; 32]);
+
+impl Deref for Hex32Bytes {
+    type Target = [u8; 32];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<[u8; 32]> for Hex32Bytes {
+    fn from(other: [u8; 32]) -> Hex32Bytes {
+        Hex32Bytes(other)
+    }
+}
+
 /// Format used by the Electrum server to identify an address. The reverse sha256 hash of the
 /// scriptPubKey. Documented [here](https://electrumx.readthedocs.io/en/latest/protocol-basics.html#script-hashes).
-pub type ScriptHash = [u8; 32];
+pub type ScriptHash = Hex32Bytes;
+
 /// Binary blob that condenses all the activity of an address. Used to detect changes without
 /// having to compare potentially long lists of transactions.
-pub type ScriptStatus = [u8; 32];
+pub type ScriptStatus = Hex32Bytes;
 
 /// Trait used to convert a struct into the Electrum representation of an address
 pub trait ToElectrumScriptHash {
@@ -76,7 +101,7 @@ impl ToElectrumScriptHash for Script {
         let mut result = sha256::Hash::hash(self.as_bytes()).into_inner();
         result.reverse();
 
-        result
+        result.into()
     }
 }
 
@@ -113,8 +138,6 @@ fn from_hex_header<'de, D>(deserializer: D) -> Result<block::BlockHeader, D::Err
 where
     D: de::Deserializer<'de>,
 {
-    use bitcoin::consensus::deserialize;
-
     let vec: Vec<u8> = from_hex(deserializer)?;
     deserialize(&vec).map_err(de::Error::custom)
 }
@@ -208,6 +231,27 @@ pub struct HeaderNotification {
     pub header: block::BlockHeader,
 }
 
+/// Notification of a new block header with the header encoded as raw bytes
+#[derive(Debug, Deserialize)]
+pub struct RawHeaderNotification {
+    /// New block height.
+    pub height: usize,
+    /// Newly added header.
+    #[serde(rename = "hex", deserialize_with = "from_hex")]
+    pub header: Vec<u8>,
+}
+
+impl TryFrom<RawHeaderNotification> for HeaderNotification {
+    type Error = Error;
+
+    fn try_from(raw: RawHeaderNotification) -> Result<Self, Self::Error> {
+        Ok(HeaderNotification {
+            height: raw.height,
+            header: deserialize(&raw.header)?,
+        })
+    }
+}
+
 /// Notification of the new status of a script
 #[derive(Debug, Deserialize)]
 pub struct ScriptNotification {
@@ -242,16 +286,19 @@ pub enum Error {
     InvalidDNSNameError(String),
     /// Missing domain while it was explicitly asked to validate it
     MissingDomain,
-    /// EOF while trying to read from the underlying stream
-    EOF,
+    /// SSL over a socks5 proxy is currently not supported
+    SSLOverSocks5,
 
-    #[cfg(any(feature = "default", feature = "tls"))]
-    /// TLS Error
-    TLS(native_tls::Error),
+    /// Couldn't take a lock on the reader mutex. This means that there's already another reader
+    /// thread running
+    CouldntLockReader,
 
-    #[cfg(any(feature = "default", feature = "proxy"))]
-    /// Proxy Error
-    Proxy(tokio_socks::Error),
+    #[cfg(feature = "use-openssl")]
+    /// Invalid OpenSSL method used
+    InvalidSslMethod(openssl::error::ErrorStack),
+    #[cfg(feature = "use-openssl")]
+    /// SSL Handshake failed with the server
+    SslHandshakeError(openssl::ssl::HandshakeError<std::net::TcpStream>),
 }
 
 macro_rules! impl_error {
@@ -268,9 +315,3 @@ impl_error!(std::io::Error, IOError);
 impl_error!(serde_json::Error, JSON);
 impl_error!(bitcoin::hashes::hex::Error, Hex);
 impl_error!(bitcoin::consensus::encode::Error, Bitcoin);
-
-#[cfg(any(feature = "default", feature = "tls"))]
-impl_error!(native_tls::Error, TLS);
-
-#[cfg(any(feature = "default", feature = "proxy"))]
-impl_error!(tokio_socks::Error, Proxy);

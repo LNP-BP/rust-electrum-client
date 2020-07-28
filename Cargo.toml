@@ -1,7 +1,6 @@
 [package]
-edition = "2018"
 name = "electrum-client"
-version = "0.1.0-beta.6"
+version = "0.2.0-beta.1"
 authors = ["Alekos Filini <alekos.filini@gmail.com>"]
 license = "MIT"
 homepage = "https://github.com/MagicalBitcoin/rust-electrum-client"
@@ -10,9 +9,6 @@ documentation = "https://docs.rs/electrum-client/"
 description = "Bitcoin Electrum client library. Supports plaintext, TLS and Onion servers."
 keywords = ["bitcoin", "electrum"]
 readme = "README.md"
-exclude = [
-    "test_data/*",
-]
 
 # loosely based on https://github.com/evgeniy-scherbina/rust-electrumx-client
 
@@ -23,24 +19,20 @@ path = "src/lib.rs"
 [dependencies]
 log = "^0.4"
 bitcoin = { git = "https://github.com/lnp-bp/rust-bitcoin", branch = "staging", features = ["use-serde"] }
-tokio = { version = "0.2", features = ["net", "io-util"] }
-futures = "0.3"
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = { version = "^1.0" }
-lazy_static = { version = "1.4" }
 
 # Optional dependencies
-tokio-tls = { version = "0.3", optional = true }
-native-tls = { version = "0.2.4", optional = true }
-tokio-socks = { version = "0.2", optional = true }
-
-[dev-dependencies]
-tokio = { version = "0.2", features = ["net", "io-util", "macros"] }
+socks = { version = "^0.3", optional = true }
+openssl = { version = "^0.10", optional = true }
+rustls = { version = "0.16.0", optional = true, features = ["dangerous_configuration"] }
+webpki = { version = "0.21.0", optional = true }
+webpki-roots = { version = "^0.19", optional = true }
 
 [features]
-default = ["tls", "proxy"]
-no-sync = []
+default = ["socks", "webpki", "webpki-roots", "rustls"]
 minimal = []
 debug-calls = []
-proxy = ["tokio-socks"]
-tls = ["tokio-tls", "native-tls"]
+proxy = ["socks"]
+use-rustls = ["webpki", "webpki-roots", "rustls"]
+use-openssl = ["openssl"]

@@ -12,29 +12,40 @@
 //! # Example
 //!
 //! ```no_run
-//! use electrum_client::{Client, Error};
+//! use electrum_client::{Client, ElectrumApi};
 //!
-//! #[tokio::main]
-//! async fn main() -> Result<(), Error> {
-//!     let mut client = Client::new("kirsche.emzy.de:50001").await?;
-//!     let response = client.server_features().await?;
-//!
-//!     Ok(())
-//! }
+//! let mut client = Client::new("tcp://electrum.blockstream.info:50001", None)?;
+//! let response = client.server_features()?;
+//! # Ok::<(), electrum_client::Error>(())
 //! ```
 
 pub extern crate bitcoin;
-pub extern crate tokio;
+extern crate core;
+extern crate log;
+#[cfg(feature = "use-openssl")]
+extern crate openssl;
+#[cfg(all(
+    any(feature = "default", feature = "use-rustls"),
+    not(feature = "use-openssl")
+))]
+extern crate rustls;
+extern crate serde;
+extern crate serde_json;
+#[cfg(any(feature = "default", feature = "proxy"))]
+extern crate socks;
+#[cfg(any(feature = "use-rustls", feature = "default"))]
+extern crate webpki;
+#[cfg(any(feature = "use-rustls", feature = "default"))]
+extern crate webpki_roots;
 
-#[macro_use]
-extern crate lazy_static;
-
-pub mod batch;
+mod api;
+mod batch;
 pub mod client;
-#[cfg(test)]
-mod test_stream;
-pub mod types;
+pub mod raw_client;
+mod stream;
+mod types;
 
+pub use api::ElectrumApi;
 pub use batch::Batch;
-pub use client::Client;
+pub use client::*;
 pub use types::*;
